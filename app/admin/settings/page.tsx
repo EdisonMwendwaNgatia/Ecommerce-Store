@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Save, Store, Mail, Shield, Palette, CreditCard, Truck, X } from 'lucide-react'
+import { Save, Store, Mail, Shield, Palette, CreditCard, Truck, X, Key, Eye, EyeOff } from 'lucide-react'
 
 interface StoreSettings {
   id: string
@@ -88,6 +88,18 @@ export default function SettingsPage() {
   const [errorMessage, setErrorMessage] = useState<string>('')
   const [inviteEmail, setInviteEmail] = useState('')
   const [showInviteForm, setShowInviteForm] = useState(false)
+  
+  // Password reset states
+  const [showPasswordReset, setShowPasswordReset] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordResetStatus, setPasswordResetStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [passwordResetMessage, setPasswordResetMessage] = useState('')
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  
   const supabase = createClient()
 
   const themeColors: ThemeColor[] = [
@@ -173,54 +185,54 @@ export default function SettingsPage() {
   }
 
   const handleSaveSettings = async () => {
-  setIsLoading(true)
-  setSaveStatus('idle')
-  setErrorMessage('')
+    setIsLoading(true)
+    setSaveStatus('idle')
+    setErrorMessage('')
 
-  try {
-    console.log('Saving settings to database:', settings)
+    try {
+      console.log('Saving settings to database:', settings)
 
-    // First, check if user is authenticated
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
-    if (authError || !user) {
-      throw new Error('You must be logged in to save settings')
-    }
-
-    // Prepare the data for upsert
-    const settingsToSave = {
-      ...settings,
-      updated_at: new Date().toISOString()
-    }
-
-    console.log('Data being sent to Supabase:', settingsToSave)
-
-    const { data, error } = await supabase
-      .from('store_settings')
-      .upsert(settingsToSave)
-      .select()
-
-    if (error) {
-      console.error('Supabase upsert error:', error)
+      // First, check if user is authenticated
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
       
-      if (error.code === '42501') {
-        throw new Error('Permission denied: You do not have admin privileges to modify settings')
-      } else {
-        throw new Error(error.message || `Database error: ${error.code}`)
+      if (authError || !user) {
+        throw new Error('You must be logged in to save settings')
       }
-    }
 
-    console.log('Settings saved successfully:', data)
-    setSaveStatus('success')
-    setTimeout(() => setSaveStatus('idle'), 3000)
-  } catch (error: any) {
-    console.error('Error saving settings:', error)
-    setSaveStatus('error')
-    setErrorMessage(error.message || 'Unknown error occurred while saving settings')
-  } finally {
-    setIsLoading(false)
+      // Prepare the data for upsert
+      const settingsToSave = {
+        ...settings,
+        updated_at: new Date().toISOString()
+      }
+
+      console.log('Data being sent to Supabase:', settingsToSave)
+
+      const { data, error } = await supabase
+        .from('store_settings')
+        .upsert(settingsToSave)
+        .select()
+
+      if (error) {
+        console.error('Supabase upsert error:', error)
+        
+        if (error.code === '42501') {
+          throw new Error('Permission denied: You do not have admin privileges to modify settings')
+        } else {
+          throw new Error(error.message || `Database error: ${error.code}`)
+        }
+      }
+
+      console.log('Settings saved successfully:', data)
+      setSaveStatus('success')
+      setTimeout(() => setSaveStatus('idle'), 3000)
+    } catch (error: any) {
+      console.error('Error saving settings:', error)
+      setSaveStatus('error')
+      setErrorMessage(error.message || 'Unknown error occurred while saving settings')
+    } finally {
+      setIsLoading(false)
+    }
   }
-}
 
   const handleInviteAdmin = async () => {
     if (!inviteEmail) return
@@ -252,6 +264,106 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Error sending invitation:', error)
       alert('Error sending invitation. Please try again.')
+    }
+  }
+
+  const handlePasswordReset = async () => {
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordResetMessage('Please fill in all password fields')
+      setPasswordResetStatus('error')
+      return
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPasswordResetMessage('New passwords do not match')
+      setPasswordResetStatus('error')
+      return
+    }
+
+    if (newPassword.length < 6) {
+      setPasswordResetMessage('Password must be at least 6 characters long')
+      setPasswordResetStatus('error')
+      return
+    }
+
+    setPasswordResetStatus('loading')
+    setPasswordResetMessage('')
+
+    try {
+      // First verify current password by signing in again
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user || !user.email) {
+        throw new Error('User not found')
+      }
+
+      // Verify current password
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      })
+
+      if (signInError) {
+        throw new Error('Current password is incorrect')
+      }
+
+      // Update password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      })
+
+      if (updateError) {
+        throw new Error(updateError.message || 'Failed to update password')
+      }
+
+      setPasswordResetStatus('success')
+      setPasswordResetMessage('Password updated successfully!')
+      
+      // Reset form
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmPassword('')
+      
+      setTimeout(() => {
+        setPasswordResetStatus('idle')
+        setPasswordResetMessage('')
+        setShowPasswordReset(false)
+      }, 3000)
+
+    } catch (error: any) {
+      console.error('Error resetting password:', error)
+      setPasswordResetStatus('error')
+      setPasswordResetMessage(error.message || 'Failed to update password')
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    if (!user?.email) {
+      setPasswordResetMessage('No email address found for your account')
+      setPasswordResetStatus('error')
+      return
+    }
+
+    setPasswordResetStatus('loading')
+    setPasswordResetMessage('Sending reset email...')
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      })
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      setPasswordResetStatus('success')
+      setPasswordResetMessage('Password reset email sent! Check your inbox.')
+    } catch (error: any) {
+      console.error('Error sending reset email:', error)
+      setPasswordResetStatus('error')
+      setPasswordResetMessage(error.message || 'Failed to send reset email')
     }
   }
 
@@ -581,114 +693,263 @@ export default function SettingsPage() {
 
         {/* Security Settings */}
         <TabsContent value="security">
-          <Card>
-            <CardHeader>
-              <CardTitle>Security & Access</CardTitle>
-              <CardDescription>
-                Manage store access and security settings
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label htmlFor="maintenance_mode" className="text-base">Maintenance Mode</Label>
-                  <p className="text-sm text-gray-500">
-                    Temporarily disable the store for maintenance
-                  </p>
-                </div>
-                <Switch
-                  id="maintenance_mode"
-                  checked={settings.maintenance_mode}
-                  onCheckedChange={(checked) => handleInputChange('maintenance_mode', checked)}
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div>
-                  <Label htmlFor="allow_registrations" className="text-base">Allow User Registrations</Label>
-                  <p className="text-sm text-gray-500">
-                    Allow new customers to create accounts
-                  </p>
-                </div>
-                <Switch
-                  id="allow_registrations"
-                  checked={settings.allow_registrations}
-                  onCheckedChange={(checked) => handleInputChange('allow_registrations', checked)}
-                />
-              </div>
-
-              <div className="space-y-4">
-                <h4 className="font-medium">Admin Users</h4>
-                <div className="border rounded-lg">
-                  <div className="p-4 border-b flex items-center justify-between">
-                    <div>
-                      <p className="font-medium">admin@tvee-store.com</p>
-                      <p className="text-sm text-gray-500">Super Administrator</p>
-                    </div>
-                    <Button variant="outline" size="sm" disabled>
-                      Edit
-                    </Button>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Security & Access</CardTitle>
+                <CardDescription>
+                  Manage store access and security settings
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="maintenance_mode" className="text-base">Maintenance Mode</Label>
+                    <p className="text-sm text-gray-500">
+                      Temporarily disable the store for maintenance
+                    </p>
                   </div>
+                  <Switch
+                    id="maintenance_mode"
+                    checked={settings.maintenance_mode}
+                    onCheckedChange={(checked) => handleInputChange('maintenance_mode', checked)}
+                  />
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label htmlFor="allow_registrations" className="text-base">Allow User Registrations</Label>
+                    <p className="text-sm text-gray-500">
+                      Allow new customers to create accounts
+                    </p>
+                  </div>
+                  <Switch
+                    id="allow_registrations"
+                    checked={settings.allow_registrations}
+                    onCheckedChange={(checked) => handleInputChange('allow_registrations', checked)}
+                  />
+                </div>
+
+                {/* Password Reset Section */}
+                <div className="space-y-4">
+                  <h4 className="font-medium">Password Management</h4>
                   
-                  {showInviteForm ? (
-                    <div className="p-4 border-b space-y-3">
+                  {passwordResetStatus === 'success' && (
+                    <Alert>
+                      <AlertDescription>{passwordResetMessage}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  {passwordResetStatus === 'error' && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{passwordResetMessage}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  {!showPasswordReset ? (
+                    <div className="space-y-3">
+                      <Button 
+                        variant="outline" 
+                        className="w-full flex items-center gap-2"
+                        onClick={() => setShowPasswordReset(true)}
+                      >
+                        <Key className="h-4 w-4" />
+                        Change Password
+                      </Button>
+                      
+                      <Button 
+                        variant="ghost" 
+                        className="w-full text-sm"
+                        onClick={handleForgotPassword}
+                        disabled={passwordResetStatus === 'loading'}
+                      >
+                        Forgot Password? Send reset email
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="p-4 border rounded-lg space-y-4">
                       <div className="flex items-center justify-between">
-                        <Label>Invite New Admin</Label>
+                        <Label className="text-base">Change Password</Label>
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setShowInviteForm(false)}
+                          onClick={() => {
+                            setShowPasswordReset(false)
+                            setCurrentPassword('')
+                            setNewPassword('')
+                            setConfirmPassword('')
+                            setPasswordResetStatus('idle')
+                            setPasswordResetMessage('')
+                          }}
                         >
                           <X className="h-4 w-4" />
                         </Button>
                       </div>
-                      <div className="flex gap-2">
-                        <Input
-                          type="email"
-                          placeholder="Enter email address"
-                          value={inviteEmail}
-                          onChange={(e) => setInviteEmail(e.target.value)}
-                        />
-                        <Button onClick={handleInviteAdmin}>
-                          Send Invite
+
+                      <div className="space-y-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="currentPassword">Current Password</Label>
+                          <div className="relative">
+                            <Input
+                              id="currentPassword"
+                              type={showCurrentPassword ? "text" : "password"}
+                              value={currentPassword}
+                              onChange={(e) => setCurrentPassword(e.target.value)}
+                              placeholder="Enter current password"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                            >
+                              {showCurrentPassword ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="newPassword">New Password</Label>
+                          <div className="relative">
+                            <Input
+                              id="newPassword"
+                              type={showNewPassword ? "text" : "password"}
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                              placeholder="Enter new password"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowNewPassword(!showNewPassword)}
+                            >
+                              {showNewPassword ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                          <div className="relative">
+                            <Input
+                              id="confirmPassword"
+                              type={showConfirmPassword ? "text" : "password"}
+                              value={confirmPassword}
+                              onChange={(e) => setConfirmPassword(e.target.value)}
+                              placeholder="Confirm new password"
+                            />
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                            >
+                              {showConfirmPassword ? (
+                                <EyeOff className="h-4 w-4" />
+                              ) : (
+                                <Eye className="h-4 w-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <Button 
+                          onClick={handlePasswordReset}
+                          disabled={passwordResetStatus === 'loading'}
+                          className="w-full"
+                        >
+                          {passwordResetStatus === 'loading' ? 'Updating Password...' : 'Update Password'}
                         </Button>
                       </div>
                     </div>
-                  ) : (
-                    <div className="p-4">
-                      <Button 
-                        variant="outline" 
-                        className="w-full"
-                        onClick={() => setShowInviteForm(true)}
-                      >
-                        <Mail className="h-4 w-4 mr-2" />
-                        Invite New Admin
-                      </Button>
-                    </div>
                   )}
                 </div>
-              </div>
 
-              <div className="space-y-4">
-                <h4 className="font-medium">Danger Zone</h4>
-                <Card className="border-red-200 bg-red-50">
-                  <CardContent className="p-4">
-                    <div className="flex items-center justify-between">
+                <div className="space-y-4">
+                  <h4 className="font-medium">Admin Users</h4>
+                  <div className="border rounded-lg">
+                    <div className="p-4 border-b flex items-center justify-between">
                       <div>
-                        <h5 className="font-medium text-red-800">Reset Store Data</h5>
-                        <p className="text-sm text-red-600">
-                          Permanently delete all products, orders, and customer data
-                        </p>
+                        <p className="font-medium">admin@tvee-store.com</p>
+                        <p className="text-sm text-gray-500">Super Administrator</p>
                       </div>
-                      <Button variant="destructive" disabled>
-                        Reset Store
+                      <Button variant="outline" size="sm" disabled>
+                        Edit
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </CardContent>
-          </Card>
+                    
+                    {showInviteForm ? (
+                      <div className="p-4 border-b space-y-3">
+                        <div className="flex items-center justify-between">
+                          <Label>Invite New Admin</Label>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowInviteForm(false)}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                        <div className="flex gap-2">
+                          <Input
+                            type="email"
+                            placeholder="Enter email address"
+                            value={inviteEmail}
+                            onChange={(e) => setInviteEmail(e.target.value)}
+                          />
+                          <Button onClick={handleInviteAdmin}>
+                            Send Invite
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="p-4">
+                        <Button 
+                          variant="outline" 
+                          className="w-full"
+                          onClick={() => setShowInviteForm(true)}
+                        >
+                          <Mail className="h-4 w-4 mr-2" />
+                          Invite New Admin
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="font-medium">Danger Zone</h4>
+                  <Card className="border-red-200 bg-red-50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h5 className="font-medium text-red-800">Reset Store Data</h5>
+                          <p className="text-sm text-red-600">
+                            Permanently delete all products, orders, and customer data
+                          </p>
+                        </div>
+                        <Button variant="destructive" disabled>
+                          Reset Store
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>
